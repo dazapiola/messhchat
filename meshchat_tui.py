@@ -1,16 +1,40 @@
 #!/usr/bin/env python3
 import argparse
+import glob
+import platform
 from datetime import datetime
 import meshtastic
 import meshtastic.serial_interface
 from pubsub import pub
+from serial.tools import list_ports
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, TabbedContent, TabPane, RichLog, Input, Button, Static
 from textual.containers import Vertical, Horizontal
 from textual import work
 
-PORT = "/dev/ttyUSB0"
-VERSION = "1.1.0"
+VERSION = "1.2.0"
+
+USB_SERIAL_CHIPS = ["CP210", "CH340", "CH341", "FTDI", "SILABS", "PROLIFIC", "MESHTASTIC"]
+
+def find_port() -> str:
+    # Busca por chip USB-serial conocido
+    for port in list_ports.comports():
+        desc = (port.description or "").upper()
+        if any(chip in desc for chip in USB_SERIAL_CHIPS):
+            return port.device
+
+    # Fallback por sistema operativo
+    system = platform.system()
+    if system == "Linux":
+        candidates = glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*")
+        return candidates[0] if candidates else "/dev/ttyUSB0"
+    elif system == "Darwin":
+        candidates = glob.glob("/dev/tty.usbserial*") + glob.glob("/dev/tty.SLAB_USBtoUART*")
+        return candidates[0] if candidates else "/dev/tty.usbserial-0001"
+    elif system == "Windows":
+        ports = [p.device for p in list_ports.comports()]
+        return ports[0] if ports else "COM3"
+    return "/dev/ttyUSB0"
 
 MATE_LOGO = """\
 [bold green]     )  )  )[/bold green]
@@ -42,8 +66,10 @@ AYUDA = f"""\
   [dim]# A un nodo específico[/dim]
   python meshchat_tui.py -d "!a1b2c3d4"
 
-  [dim]# Canal y puerto custom[/dim]
-  python meshchat_tui.py -c 1 -p /dev/ttyUSB1
+  [dim]# Canal y puerto manual (si auto-detección falla)[/dim]
+  python meshchat_tui.py -c 1 -p /dev/ttyUSB1  [dim]# Linux[/dim]
+  python meshchat_tui.py -p /dev/tty.usbserial-0001  [dim]# Mac[/dim]
+  python meshchat_tui.py -p COM3  [dim]# Windows[/dim]
 
 [bold]  ─── Chat ────────────────────────[/bold]
   Los mensajes en [yellow bold]amarillo ★[/yellow bold] son dirigidos a tu nodo.
@@ -215,9 +241,10 @@ class MeshChatTUI(App):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MeshChat TUI - Interfaz interactiva Meshtastic")
-    parser.add_argument("-p", "--port", default=PORT, help="Puerto serial (default: /dev/ttyUSB0)")
-    parser.add_argument("-d", "--dest", default=None, help="Nodo destino (ej: !02eabe70)")
+    parser.add_argument("-p", "--port", default=None, help="Puerto serial (auto-detectado si no se especifica)")
+    parser.add_argument("-d", "--dest", default=None, help="Nodo destino (ej: !a1b2c3d4)")
     parser.add_argument("-c", "--channel", type=int, default=0, help="Canal (default: 0)")
     args = parser.parse_args()
 
-    MeshChatTUI(port=args.port, dest=args.dest, channel=args.channel).run()
+    port = args.port or find_port()
+    MeshChatTUI(port=port, dest=args.dest, channel=args.channel).run()

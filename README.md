@@ -18,28 +18,59 @@ Cliente de terminal para interactuar con nodos [Meshtastic](https://meshtastic.o
 ## Requisitos
 
 - Python 3.10+
-- Dispositivo Meshtastic conectado por USB (probado con Heltec WiFi LoRa 32 V3)
-- Acceso al puerto serial (`/dev/ttyUSB0`)
-
-```bash
-# Si no tenés permisos sobre el puerto:
-sudo usermod -aG dialout $USER
-# Cerrar sesión y volver a entrar
-```
+- Dispositivo Meshtastic conectado por USB
+- El puerto serial se **auto-detecta** — no necesitás configurar nada en la mayoría de los casos
 
 ---
 
 ## Instalación
 
+### Linux
+
 ```bash
 git clone <repo>
 cd messhchat
-
-python3 -m venv .venv
-source .venv/bin/activate
-
-pip install meshtastic textual
+make install
+make run
 ```
+
+> Si el dispositivo no tiene permisos:
+> ```bash
+> sudo usermod -aG dialout $USER
+> # Cerrar sesión y volver a entrar
+> ```
+
+### macOS
+
+```bash
+git clone <repo>
+cd messhchat
+make install
+make run
+```
+
+> En Mac el puerto suele ser `/dev/tty.usbserial-*`. Si falla la auto-detección:
+> ```bash
+> .venv/bin/python meshchat_tui.py -p /dev/tty.usbserial-0001
+> ```
+
+### Windows
+
+```cmd
+git clone <repo>
+cd messhchat
+install.bat
+```
+
+Luego para iniciar:
+```cmd
+.venv\Scripts\python meshchat_tui.py
+```
+
+> En Windows el puerto es `COM3`, `COM4`, etc. Si falla la auto-detección:
+> ```cmd
+> .venv\Scripts\python meshchat_tui.py -p COM3
+> ```
 
 ---
 
