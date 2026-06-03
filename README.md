@@ -56,7 +56,7 @@ La interfaz principal. Dos tabs:
 .venv/bin/python meshchat_tui.py
 
 # A un nodo específico
-.venv/bin/python meshchat_tui.py -d "!02eabe70"
+.venv/bin/python meshchat_tui.py -d "!a1b2c3d4"
 
 # En otro canal
 .venv/bin/python meshchat_tui.py -c 1
@@ -73,21 +73,6 @@ La interfaz principal. Dos tabs:
 | `2` | Tab Chat |
 | `Enter` | Enviar mensaje |
 | `Ctrl+C` | Salir |
-
----
-
-### `meshtastic_send.py` — Envío rápido desde línea de comandos
-
-```bash
-# Broadcast
-.venv/bin/python meshtastic_send.py "Hola mesh!"
-
-# A un nodo específico
-.venv/bin/python meshtastic_send.py "Hola!" -d "!02eabe70"
-
-# En otro canal
-.venv/bin/python meshtastic_send.py "Hola!" -c 1
-```
 
 ---
 
