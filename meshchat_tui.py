@@ -126,10 +126,14 @@ class MeshChatTUI(App):
             if portnum == "TEXT_MESSAGE_APP":
                 text = decoded.get("text", "")
                 to_id = packet.get("toId", "^all")
+                is_direct = to_id == self.my_id
                 to_label = "broadcast" if to_id == "^all" else to_id
                 chat = self.query_one("#chat_viewer", RichLog)
                 self.call_from_thread(log.write, f"[dim]{ts}[/dim] [cyan]{from_id}[/cyan] → [magenta]{to_label}[/magenta]: {text}")
-                self.call_from_thread(chat.write, f"[dim]{ts}[/dim] [cyan bold]{from_id}[/cyan bold]: {text}")
+                if is_direct:
+                    self.call_from_thread(chat.write, f"[dim]{ts}[/dim] [yellow bold]★ {from_id} → vos:[/yellow bold] {text}")
+                else:
+                    self.call_from_thread(chat.write, f"[dim]{ts}[/dim] [cyan bold]{from_id}[/cyan bold]: {text}")
             else:
                 self.call_from_thread(log.write, f"[dim]{ts} {from_id} [{portnum}][/dim]")
         except Exception:
