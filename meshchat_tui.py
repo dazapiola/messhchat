@@ -10,6 +10,7 @@ from textual.containers import Vertical, Horizontal
 from textual import work
 
 PORT = "/dev/ttyUSB0"
+VERSION = "1.1.0"
 
 MATE_LOGO = """\
 [bold green]     )  )  )[/bold green]
@@ -21,6 +22,40 @@ MATE_LOGO = """\
 [bold yellow]     ║   ║  [/bold yellow]
 [bold yellow]    ═╩═══╩═ [/bold yellow]"""
 
+AYUDA = f"""\
+{MATE_LOGO}
+
+[bold white]  MeshChat v{VERSION}[/bold white]
+[dim]  Cliente TUI para Meshtastic[/dim]
+
+[bold]  ─── Atajos ──────────────────────[/bold]
+  [cyan]1[/cyan]          Tab Logs
+  [cyan]2[/cyan]          Tab Chat
+  [cyan]3[/cyan]          Tab Ayuda
+  [cyan]Enter[/cyan]      Enviar mensaje
+  [cyan]Ctrl+C[/cyan]     Salir
+
+[bold]  ─── Inicio ──────────────────────[/bold]
+  [dim]# Broadcast en canal 0[/dim]
+  python meshchat_tui.py
+
+  [dim]# A un nodo específico[/dim]
+  python meshchat_tui.py -d "!a1b2c3d4"
+
+  [dim]# Canal y puerto custom[/dim]
+  python meshchat_tui.py -c 1 -p /dev/ttyUSB1
+
+[bold]  ─── Chat ────────────────────────[/bold]
+  Los mensajes en [yellow bold]amarillo ★[/yellow bold] son dirigidos a tu nodo.
+  Los mensajes en [cyan]cyan[/cyan] son broadcasts.
+  El tab [bold]Logs[/bold] muestra todos los paquetes recibidos.
+
+[bold]  ─── Comandos del bot ────────────[/bold]
+  [green]#vecinos[/green]   Nodos cercanos con distancia
+  [green]#help[/green]      Lista de comandos disponibles
+  [green]#info[/green]      Información del bot
+"""
+
 
 class MeshChatTUI(App):
     CSS = """
@@ -28,11 +63,10 @@ class MeshChatTUI(App):
         background: $surface;
     }
 
-    #logo {
-        height: 9;
-        content-align: center middle;
-        padding: 1 2;
-        color: $text;
+    #ayuda_panel {
+        height: 1fr;
+        content-align: center top;
+        padding: 2 4;
     }
 
     #log_viewer {
@@ -71,6 +105,7 @@ class MeshChatTUI(App):
         ("ctrl+c", "quit", "Salir"),
         ("1", "show_tab('logs')", "Logs"),
         ("2", "show_tab('chat')", "Chat"),
+        ("3", "show_tab('ayuda')", "Ayuda"),
     ]
 
     def __init__(self, port: str, dest: str | None, channel: int):
@@ -83,7 +118,6 @@ class MeshChatTUI(App):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        yield Static(MATE_LOGO, id="logo")
         with TabbedContent(initial="logs"):
             with TabPane("📋 Logs", id="logs"):
                 yield RichLog(id="log_viewer", highlight=True, markup=True, wrap=True)
@@ -93,6 +127,8 @@ class MeshChatTUI(App):
                     with Horizontal(id="input_bar"):
                         yield Input(placeholder="Escribí tu mensaje y Enter para enviar...", id="msg_input")
                         yield Button("Enviar ▶", id="send_btn", variant="primary")
+            with TabPane("ℹ️ Ayuda", id="ayuda"):
+                yield Static(AYUDA, id="ayuda_panel", markup=True)
         yield Footer()
 
     def on_mount(self) -> None:

@@ -11,7 +11,7 @@
     ═╩═══╩═
 ```
 
-Cliente de terminal para interactuar con nodos [Meshtastic](https://meshtastic.org/) desde Linux. Incluye una TUI interactiva con visor de logs en tiempo real y chat, además de scripts simples para envío rápido de mensajes.
+Cliente de terminal para interactuar con nodos [Meshtastic](https://meshtastic.org/) desde Linux. Incluye una TUI interactiva con visor de logs en tiempo real, chat y pantalla de ayuda. Compatible con cualquier broker MQTT (MeshChile, Meshtastic público, propio, etc.).
 
 ---
 
@@ -71,6 +71,7 @@ La interfaz principal. Dos tabs:
 |-------|--------|
 | `1` | Tab Logs |
 | `2` | Tab Chat |
+| `3` | Tab Ayuda |
 | `Enter` | Enviar mensaje |
 | `Ctrl+C` | Salir |
 
@@ -86,9 +87,9 @@ Muestra en tiempo real todos los paquetes que recibe el nodo, sin interfaz gráf
 
 ---
 
-## Comandos del bot MeshChile
+## Comandos de bot
 
-Si el nodo está configurado con MQTT apuntando a `mqtt.meshchile.cl`, podés usar estos comandos en el chat:
+Algunos bots de la comunidad Meshtastic responden comandos enviados en broadcast:
 
 | Comando | Descripción |
 |---------|-------------|
@@ -98,8 +99,16 @@ Si el nodo está configurado con MQTT apuntando a `mqtt.meshchile.cl`, podés us
 
 ---
 
+## MQTT
+
+El cliente funciona con cualquier broker MQTT compatible con Meshtastic:
+
+- [MeshChile](https://meshchile.cl) — `mqtt.meshchile.cl`
+- [Meshtastic público](https://meshtastic.org) — `mqtt.meshtastic.org`
+- Broker propio
+
+La configuración del broker se realiza directamente en el dispositivo vía `meshtastic --set network.mqtt_*`.
+
 ## Hardware probado
 
 - **Heltec WiFi LoRa 32 V3** con firmware Meshtastic 2.7.x
-- Región: Chile (`lora.region = ANZ` o `LA`)
-- Red MQTT: [MeshChile](https://meshchile.cl)
