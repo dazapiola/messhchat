@@ -6,24 +6,22 @@ from datetime import datetime
 import meshtastic
 import meshtastic.serial_interface
 from pubsub import pub
+from rich.markup import escape
 from serial.tools import list_ports
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, TabbedContent, TabPane, RichLog, Input, Button, Static
+from textual.widgets import Header, Footer, TabbedContent, TabPane, RichLog, Input, Button, Static, ListView, ListItem, Label
 from textual.containers import Vertical, Horizontal
 from textual import work
 
-VERSION = "1.2.0"
+VERSION = "2.0.0"
 
 USB_SERIAL_CHIPS = ["CP210", "CH340", "CH341", "FTDI", "SILABS", "PROLIFIC", "MESHTASTIC"]
 
 def find_port() -> str:
-    # Busca por chip USB-serial conocido
     for port in list_ports.comports():
         desc = (port.description or "").upper()
         if any(chip in desc for chip in USB_SERIAL_CHIPS):
             return port.device
-
-    # Fallback por sistema operativo
     system = platform.system()
     if system == "Linux":
         candidates = glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*")
@@ -57,6 +55,7 @@ AYUDA = f"""\
   [cyan]2[/cyan]          Tab Chat
   [cyan]3[/cyan]          Tab Ayuda
   [cyan]Enter[/cyan]      Enviar mensaje
+  [cyan]Alt+↑/↓[/cyan]   Cambiar canal
   [cyan]Ctrl+C[/cyan]     Salir
 
 [bold]  ─── Inicio ──────────────────────[/bold]
@@ -66,15 +65,28 @@ AYUDA = f"""\
   [dim]# A un nodo específico[/dim]
   python meshchat_tui.py -d "!a1b2c3d4"
 
-  [dim]# Canal y puerto manual (si auto-detección falla)[/dim]
+  [dim]# Puerto manual (si auto-detección falla)[/dim]
   python meshchat_tui.py -c 1 -p /dev/ttyUSB1  [dim]# Linux[/dim]
   python meshchat_tui.py -p /dev/tty.usbserial-0001  [dim]# Mac[/dim]
   python meshchat_tui.py -p COM3  [dim]# Windows[/dim]
 
+[bold]  ─── Canales IRC ─────────────────[/bold]
+  Los mensajes usan prefijo [green]#canal[/green] al estilo IRC.
+  Sin prefijo van a [green]#general[/green] automáticamente.
+
+  [dim]Enviar al canal emergencia:[/dim]
+  [green]#emergencia[/green] hay humo en sector norte
+
+  [dim]Entrar a un canal (sin escribir mensaje):[/dim]
+  [green]#vecinos[/green]   ← solo Enter, no envía
+
+  El panel izquierdo lista los canales activos.
+  Los números [red]rojos[/red] indican mensajes no leídos.
+  Click o Enter sobre un canal para entrar.
+
 [bold]  ─── Chat ────────────────────────[/bold]
   Los mensajes en [yellow bold]amarillo ★[/yellow bold] son dirigidos a tu nodo.
-  Los mensajes en [cyan]cyan[/cyan] son broadcasts.
-  El tab [bold]Logs[/bold] muestra todos los paquetes recibidos.
+  El tab [bold]Logs[/bold] muestra todos los paquetes sin filtro.
 
 [bold]  ─── Comandos del bot ────────────[/bold]
   [green]#vecinos[/green]   Nodos cercanos con distancia
@@ -101,6 +113,31 @@ class MeshChatTUI(App):
         padding: 0 1;
     }
 
+    #chat_area {
+        height: 1fr;
+    }
+
+    #sidebar {
+        width: 22;
+        border-right: solid $primary;
+        padding: 0 1;
+    }
+
+    #sidebar_title {
+        height: 1;
+        color: $accent;
+        text-style: bold;
+    }
+
+    #channel_list {
+        height: 1fr;
+        border: none;
+    }
+
+    #chat_main {
+        width: 1fr;
+    }
+
     #chat_viewer {
         border: solid $primary;
         height: 1fr;
@@ -110,7 +147,6 @@ class MeshChatTUI(App):
     #input_bar {
         height: 3;
         padding: 0 1;
-        dock: bottom;
     }
 
     #msg_input {
@@ -132,6 +168,8 @@ class MeshChatTUI(App):
         ("1", "show_tab('logs')", "Logs"),
         ("2", "show_tab('chat')", "Chat"),
         ("3", "show_tab('ayuda')", "Ayuda"),
+        ("alt+up", "prev_channel", "Canal ↑"),
+        ("alt+down", "next_channel", "Canal ↓"),
     ]
 
     def __init__(self, port: str, dest: str | None, channel: int):
@@ -141,6 +179,9 @@ class MeshChatTUI(App):
         self.channel = channel
         self.iface = None
         self.my_id = "?"
+        self.channels: dict[str, list[dict]] = {"#general": []}
+        self.active_channel: str = "#general"
+        self.unread: dict[str, int] = {}
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -148,18 +189,23 @@ class MeshChatTUI(App):
             with TabPane("📋 Logs", id="logs"):
                 yield RichLog(id="log_viewer", highlight=True, markup=True, wrap=True)
             with TabPane("💬 Chat", id="chat"):
-                with Vertical():
-                    yield RichLog(id="chat_viewer", highlight=True, markup=True, wrap=True)
-                    with Horizontal(id="input_bar"):
-                        yield Input(placeholder="Escribí tu mensaje y Enter para enviar...", id="msg_input")
-                        yield Button("Enviar ▶", id="send_btn", variant="primary")
+                with Horizontal(id="chat_area"):
+                    with Vertical(id="sidebar"):
+                        yield Static("─ CANALES ─", id="sidebar_title")
+                        yield ListView(id="channel_list")
+                    with Vertical(id="chat_main"):
+                        yield RichLog(id="chat_viewer", highlight=True, markup=True, wrap=True)
+                        with Horizontal(id="input_bar"):
+                            yield Input(placeholder="[#general] Escribe tu mensaje...", id="msg_input")
+                            yield Button("Enviar ▶", id="send_btn", variant="primary")
             with TabPane("ℹ️ Ayuda", id="ayuda"):
                 yield Static(AYUDA, id="ayuda_panel", markup=True)
         yield Footer()
 
     def on_mount(self) -> None:
         self.title = "MeshChat 🧉"
-        self.sub_title = f"Puerto: {self.port}"
+        self.sub_title = f"Puerto: {self.port} | #general"
+        self._refresh_sidebar()
         self._connect()
 
     @work(thread=True)
@@ -172,34 +218,116 @@ class MeshChatTUI(App):
             node = self.iface.getMyNodeInfo() or {}
             self.my_id = node.get("user", {}).get("id", "?")
             target = self.dest if self.dest else "broadcast"
-            self.call_from_thread(log.write, f"[green]✓ Conectado como [bold]{self.my_id}[/bold] | Canal: {self.channel} | Destino: {target}[/green]")
+            self.call_from_thread(
+                log.write,
+                f"[green]✓ Conectado como [bold]{self.my_id}[/bold] | Canal HW: {self.channel} | Destino: {target}[/green]"
+            )
         except Exception as e:
             self.call_from_thread(log.write, f"[red]✗ Error de conexión: {e}[/red]")
+
+    @staticmethod
+    def _parse_channel(text: str) -> tuple[str, str]:
+        """Extract (channel_name, message) from text. Returns (#general, text) if no prefix."""
+        if text.startswith("#"):
+            parts = text.split(" ", 1)
+            ch = parts[0].lower()
+            msg = parts[1].strip() if len(parts) > 1 else ""
+            if msg:
+                return ch, msg
+        return "#general", text
 
     def _on_receive(self, packet, **kwargs) -> None:
         try:
             decoded = packet.get("decoded", {})
             portnum = decoded.get("portnum", "")
-            from_id = packet.get("fromId", "???")
+            from_id = packet.get("fromId") or "???"
             ts = datetime.now().strftime("%H:%M:%S")
-
             log = self.query_one("#log_viewer", RichLog)
 
             if portnum == "TEXT_MESSAGE_APP":
-                text = decoded.get("text", "")
-                to_id = packet.get("toId", "^all")
+                text = decoded.get("text") or ""
+                to_id = packet.get("toId") or "^all"
                 is_direct = to_id == self.my_id
                 to_label = "broadcast" if to_id == "^all" else to_id
-                chat = self.query_one("#chat_viewer", RichLog)
-                self.call_from_thread(log.write, f"[dim]{ts}[/dim] [cyan]{from_id}[/cyan] → [magenta]{to_label}[/magenta]: {text}")
-                if is_direct:
-                    self.call_from_thread(chat.write, f"[dim]{ts}[/dim] [yellow bold]★ {from_id} → vos:[/yellow bold] {text}")
+
+                self.call_from_thread(
+                    log.write,
+                    f"[dim]{ts}[/dim] [cyan]{from_id}[/cyan] → [magenta]{to_label}[/magenta]: {escape(text)}"
+                )
+
+                ch_name, ch_msg = self._parse_channel(text)
+                msg_data = {
+                    "ts": ts,
+                    "from_id": from_id,
+                    "text": ch_msg,
+                    "is_direct": is_direct,
+                    "is_mine": False,
+                }
+
+                is_new_channel = ch_name not in self.channels
+                if is_new_channel:
+                    self.channels[ch_name] = []
+                self.channels[ch_name].append(msg_data)
+
+                if ch_name != self.active_channel:
+                    self.unread[ch_name] = self.unread.get(ch_name, 0) + 1
+                    self.call_from_thread(self._refresh_sidebar)
                 else:
-                    self.call_from_thread(chat.write, f"[dim]{ts}[/dim] [cyan bold]{from_id}[/cyan bold]: {text}")
+                    self.call_from_thread(self._append_message, msg_data)
+                    if is_new_channel:
+                        self.call_from_thread(self._refresh_sidebar)
             else:
                 self.call_from_thread(log.write, f"[dim]{ts} {from_id} [{portnum}][/dim]")
         except Exception:
             pass
+
+    def _append_message(self, msg: dict) -> None:
+        chat = self.query_one("#chat_viewer", RichLog)
+        self._render_message(chat, msg)
+
+    def _render_message(self, chat: RichLog, msg: dict) -> None:
+        ts = msg["ts"]
+        from_id = escape(msg.get("from_id") or "?")
+        text = escape(msg.get("text") or "")
+        if msg.get("is_mine"):
+            chat.write(f"[dim]{ts}[/dim] [green bold]{from_id}[/green bold]: {text}")
+        elif msg.get("is_direct"):
+            chat.write(f"[dim]{ts}[/dim] [yellow bold]★ {from_id} → vos:[/yellow bold] {text}")
+        else:
+            chat.write(f"[dim]{ts}[/dim] [cyan bold]{from_id}[/cyan bold]: {text}")
+
+    def _refresh_sidebar(self) -> None:
+        list_view = self.query_one("#channel_list", ListView)
+        list_view.clear()
+        for ch_name in self.channels:
+            unread = self.unread.get(ch_name, 0)
+            is_active = ch_name == self.active_channel
+            ch_escaped = escape(ch_name)
+            prefix = "[green]▶[/green] " if is_active else "  "
+            badge = f" [red bold]{unread}[/red bold]" if unread > 0 else ""
+            name_markup = f"[bold]{ch_escaped}[/bold]" if is_active else ch_escaped
+            list_view.append(ListItem(Label(f"{prefix}{name_markup}{badge}", markup=True)))
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        if event.list_view.id != "channel_list":
+            return
+        channels = list(self.channels.keys())
+        idx = event.list_view.index
+        if idx is not None and 0 <= idx < len(channels):
+            self._switch_channel(channels[idx])
+
+    def _switch_channel(self, channel_name: str) -> None:
+        self.active_channel = channel_name
+        self.unread[channel_name] = 0
+
+        chat = self.query_one("#chat_viewer", RichLog)
+        chat.clear()
+        for msg in self.channels.get(channel_name, []):
+            self._render_message(chat, msg)
+
+        self.query_one("#msg_input", Input).placeholder = f"[{channel_name}] Escribe tu mensaje..."
+        self.sub_title = f"Puerto: {self.port} | {channel_name}"
+        self._refresh_sidebar()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "send_btn":
@@ -216,23 +344,66 @@ class MeshChatTUI(App):
         text = msg_input.value.strip()
         if not text:
             return
+
+        # Typing just "#channelname" (no message) switches channel without sending
+        if text.startswith("#") and " " not in text:
+            ch_name = text.lower()
+            if ch_name not in self.channels:
+                self.channels[ch_name] = []
+            self._switch_channel(ch_name)
+            msg_input.value = ""
+            return
+
+        if text.startswith("#"):
+            ch_name, ch_text = self._parse_channel(text)
+            full_text = text
+        else:
+            ch_name = self.active_channel
+            ch_text = text
+            full_text = f"{self.active_channel} {text}"
+
         try:
             if self.dest:
-                self.iface.sendText(text, destinationId=self.dest, channelIndex=self.channel)
+                self.iface.sendText(full_text, destinationId=self.dest, channelIndex=self.channel)
             else:
-                self.iface.sendText(text, channelIndex=self.channel)
+                self.iface.sendText(full_text, channelIndex=self.channel)
+
             ts = datetime.now().strftime("%H:%M:%S")
+            msg_data = {"ts": ts, "from_id": self.my_id, "text": ch_text, "is_mine": True, "is_direct": False}
+
+            if ch_name not in self.channels:
+                self.channels[ch_name] = []
+            self.channels[ch_name].append(msg_data)
+
+            if ch_name == self.active_channel:
+                self._render_message(self.query_one("#chat_viewer", RichLog), msg_data)
+            else:
+                # Sent to a different channel — switch to it so the user sees confirmation
+                self._switch_channel(ch_name)
+
             to_label = self.dest if self.dest else "broadcast"
-            chat = self.query_one("#chat_viewer", RichLog)
-            log = self.query_one("#log_viewer", RichLog)
-            chat.write(f"[dim]{ts}[/dim] [green bold]{self.my_id}[/green bold]: {text}")
-            log.write(f"[dim]{ts}[/dim] [green bold]{self.my_id}[/green bold] → {to_label}: {text}")
+            self.query_one("#log_viewer", RichLog).write(
+                f"[dim]{ts}[/dim] [green bold]{escape(self.my_id)}[/green bold] → {to_label}: {escape(full_text)}"
+            )
             msg_input.value = ""
+            self._refresh_sidebar()
         except Exception as e:
             self.query_one("#chat_viewer", RichLog).write(f"[red]✗ Error al enviar: {e}[/red]")
 
     def action_show_tab(self, tab: str) -> None:
         self.query_one(TabbedContent).active = tab
+
+    def action_prev_channel(self) -> None:
+        channels = list(self.channels.keys())
+        idx = channels.index(self.active_channel)
+        if idx > 0:
+            self._switch_channel(channels[idx - 1])
+
+    def action_next_channel(self) -> None:
+        channels = list(self.channels.keys())
+        idx = channels.index(self.active_channel)
+        if idx < len(channels) - 1:
+            self._switch_channel(channels[idx + 1])
 
     def on_unmount(self) -> None:
         if self.iface:
@@ -243,7 +414,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MeshChat TUI - Interfaz interactiva Meshtastic")
     parser.add_argument("-p", "--port", default=None, help="Puerto serial (auto-detectado si no se especifica)")
     parser.add_argument("-d", "--dest", default=None, help="Nodo destino (ej: !a1b2c3d4)")
-    parser.add_argument("-c", "--channel", type=int, default=0, help="Canal (default: 0)")
+    parser.add_argument("-c", "--channel", type=int, default=0, help="Canal hardware Meshtastic (default: 0)")
     args = parser.parse_args()
 
     port = args.port or find_port()
